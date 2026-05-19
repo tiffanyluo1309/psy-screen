@@ -98,9 +98,9 @@ function ReportPage() {
     )
   }
 
-  const radarData = Object.entries(scoreResult.scores).map(([key, data]) => ({
+  const radarData = Object.entries(scoreResult.scores || {}).map(([key, data]) => ({
     subject: qLabels[key],
-    score: data.score,
+    score: data?.score || 0,
     fullMark: 3,
   }))
 

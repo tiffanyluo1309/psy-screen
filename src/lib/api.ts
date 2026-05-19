@@ -3,7 +3,7 @@ import type { ChatMessage, OpenAIMessage, ScoreResult } from '../types'
 import { CONVERSATION_PROMPT, SCORING_PROMPT } from './prompts'
 
 const API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY || ''
-const USE_MOCK_DATA = true
+const USE_MOCK_DATA = false
 
 const client = new OpenAI({
   apiKey: API_KEY,
@@ -13,7 +13,7 @@ const client = new OpenAI({
 
 const phq9Items = [
   {
-    question: '谢谢你的坦诚分享。在过去的两周里，有没有哪几天你感觉做事情提不起劲，或者对以前喜欢的活动兴趣减少了？',
+    question: '好，我想先了解一下，在过去的两周里，有没有哪几天你感觉做事情提不起劲，或者对以前喜欢的活动兴趣减少了？',
     followUps: [
       '你提到现在不太有兴趣做事，是指以前喜欢的事（比如打游戏/运动/跟朋友玩），还是对什么事都提不起劲？',
       '这种感觉大概从什么时候开始的？是某件事之后，还是慢慢就这样了？',
@@ -24,7 +24,7 @@ const phq9Items = [
     question: '我理解你的感受。最近两周心情怎么样？有没有感到低落、心里空空的，或者觉得事情不会变好了的时候？',
     followUps: [
       '你说的低落是一种什么感觉？是难过、心里空空的，还是觉得事情不会变好了？',
-      '能说说是什么让你有这种感觉吗？是有什么事情发生了，还是说不清楚原因？',
+      '能说说是什么让你有这种感觉吗？是发生了什么事，还是说不清楚原因？',
       '有没有觉得事情不会变好、或者未来会很暗淡的时候？',
     ],
   },
@@ -105,39 +105,96 @@ const FEEDBACK_PROMPT = `你是一个心理健康反馈助手。根据以下对�
 只输出JSON格式，不要任何解释，格式如下：
 {"cause":"原因描述","suggestion":"建议描述"}`
 
+interface ConversationState {
+  currentItemIndex: number
+  followUpCount: number
+  waitingForFollowUp: boolean
+}
+
+function getConversationState(messages: ChatMessage[]): ConversationState {
+  const assistantMessages = messages.filter(m => m.role === 'assistant')
+
+  if (assistantMessages.length === 0) {
+    return { currentItemIndex: 0, followUpCount: 0, waitingForFollowUp: false }
+  }
+
+  const lastAssistantMsg = assistantMessages[assistantMessages.length - 1]
+
+  if (lastAssistantMsg.content === openingMessage) {
+    return { currentItemIndex: 0, followUpCount: 0, waitingForFollowUp: false }
+  }
+
+  if (lastAssistantMsg.content === closingMessage) {
+    return { currentItemIndex: 9, followUpCount: 0, waitingForFollowUp: false }
+  }
+
+  let currentItemIndex = 0
+  let followUpCount = 0
+  let waitingForFollowUp = false
+
+  for (let i = 0; i < assistantMessages.length; i++) {
+    const msg = assistantMessages[i]
+    if (msg.content === openingMessage || msg.content === closingMessage) continue
+
+    for (let qi = 0; qi < phq9Items.length; qi++) {
+      if (msg.content === phq9Items[qi].question) {
+        currentItemIndex = qi + 1
+        followUpCount = 0
+        waitingForFollowUp = false
+        break
+      }
+      const followUpIndex = phq9Items[qi].followUps.indexOf(msg.content)
+      if (followUpIndex !== -1) {
+        currentItemIndex = qi + 1
+        followUpCount = followUpIndex + 1
+        waitingForFollowUp = true
+        break
+      }
+    }
+  }
+
+  return { currentItemIndex, followUpCount, waitingForFollowUp }
+}
+
+function shouldTriggerFollowUp(lastUserContent: string): boolean {
+  const content = lastUserContent.trim()
+  const shortAnswers = ['还好', '一般', '有时候吧', '还行', '差不多', '就这样']
+
+  if (shortAnswers.includes(content)) return true
+  if (content.length < 10) return true
+
+  const vaguePatterns = /(有点|一些|还好|一般|偶尔|有时候)/
+  if (vaguePatterns.test(content)) return true
+
+  return false
+}
+
 export async function conversationAPI(
   messages: ChatMessage[],
   onChunk: (text: string) => void
 ): Promise<void> {
   if (USE_MOCK_DATA) {
-    const userMessages = messages.filter(m => m.role === 'user')
-    const assistantMessages = messages.filter(m => m.role === 'assistant')
-
-    const lastAssistantMsg = assistantMessages[assistantMessages.length - 1]
-    const needsFollowUp = lastAssistantMsg &&
-      !lastAssistantMsg.content.includes('准备好了吗') &&
-      !lastAssistantMsg.content.includes('谢谢你愿意分享')
+    const state = getConversationState(messages)
+    const lastUserMsg = messages.filter(m => m.role === 'user').pop()
+    const lastUserContent = lastUserMsg?.content || ''
 
     let reply: string
 
-    if (assistantMessages.length === 0) {
+    if (state.currentItemIndex === 0 && messages.filter(m => m.role === 'user').length === 0) {
       reply = openingMessage
-    } else if (userMessages.length === 1 && assistantMessages.length === 1) {
-      reply = phq9Items[0].question
-    } else if (needsFollowUp && shouldTriggerFollowUp(messages)) {
-      const currentItemIndex = getCurrentItemIndex(messages)
-      if (currentItemIndex >= 0 && currentItemIndex < phq9Items.length) {
-        const followUpIndex = getFollowUpCount(messages)
-        if (followUpIndex < phq9Items[currentItemIndex].followUps.length) {
-          reply = phq9Items[currentItemIndex].followUps[followUpIndex]
-        } else {
-          reply = getNextQuestion(messages)
-        }
-      } else {
-        reply = getNextQuestion(messages)
-      }
+    } else if (state.currentItemIndex >= 9) {
+      reply = closingMessage
+    } else if (state.waitingForFollowUp) {
+      const nextFollowUp = phq9Items[state.currentItemIndex - 1]?.followUps[state.followUpCount]
+      reply = nextFollowUp || phq9Items[state.currentItemIndex - 1]?.question || closingMessage
     } else {
-      reply = getNextQuestion(messages)
+      const needFollowUp = shouldTriggerFollowUp(lastUserContent)
+      const currentItem = phq9Items[state.currentItemIndex]
+      if (needFollowUp && currentItem?.followUps?.length > 0) {
+        reply = currentItem.followUps[0]
+      } else {
+        reply = currentItem?.question || closingMessage
+      }
     }
 
     for (let i = 0; i < reply.length; i += 2) {
@@ -149,8 +206,8 @@ export async function conversationAPI(
 
   const openaiMessages: OpenAIMessage[] = [
     { role: 'system', content: CONVERSATION_PROMPT },
-    ...messages.map((msg) => ({
-      role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
+    ...messages.map((msg): OpenAIMessage => ({
+      role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content,
     })),
   ]
@@ -168,109 +225,6 @@ export async function conversationAPI(
     if (text) {
       onChunk(text)
     }
-  }
-}
-
-function shouldTriggerFollowUp(messages: ChatMessage[]): boolean {
-  const lastUserMsg = messages.filter(m => m.role === 'user').pop()
-  if (!lastUserMsg) return false
-
-  const content = lastUserMsg.content.trim()
-  const shortAnswers = ['还好', '一般', '有时候吧', '还行', '差不多', '就这样']
-
-  if (shortAnswers.includes(content)) return true
-  if (content.length < 10) return true
-
-  const vaguePatterns = /(有点|一些|还好|一般|偶尔|有时候)/
-  if (vaguePatterns.test(content)) return true
-
-  return false
-}
-
-function getCurrentItemIndex(messages: ChatMessage[]): number {
-  const assistantMessages = messages.filter(m => m.role === 'assistant')
-  if (assistantMessages.length <= 1) return 0
-
-  let itemCount = 0
-  let inFollowUp = false
-
-  for (let i = 1; i < assistantMessages.length; i++) {
-    const msg = assistantMessages[i]
-    if (inFollowUp) {
-      const isFollowUp = phq9Items.some((item, idx) =>
-        idx < itemCount && item.followUps.some(f => f === msg.content)
-      )
-      if (!isFollowUp) {
-        inFollowUp = false
-        itemCount++
-      }
-    } else {
-      itemCount++
-      const nextUserMsg = messages.find(m =>
-        m.timestamp > msg.timestamp && m.role === 'user'
-      )
-      if (nextUserMsg && shouldTriggerFollowUp([msg, nextUserMsg])) {
-        inFollowUp = true
-      }
-    }
-  }
-
-  return Math.min(itemCount, phq9Items.length - 1)
-}
-
-function getFollowUpCount(messages: ChatMessage[]): number {
-  const assistantMessages = messages.filter(m => m.role === 'assistant')
-  if (assistantMessages.length <= 1) return 0
-
-  const lastAssistantMsg = assistantMessages[assistantMessages.length - 1]
-  const currentItemIndex = getCurrentItemIndex(messages)
-
-  if (currentItemIndex >= 0 && currentItemIndex < phq9Items.length) {
-    const item = phq9Items[currentItemIndex]
-    if (item.followUps.includes(lastAssistantMsg.content)) {
-      return item.followUps.indexOf(lastAssistantMsg.content) + 1
-    }
-  }
-
-  return 0
-}
-
-function getNextQuestion(messages: ChatMessage[]): string {
-  const assistantMessages = messages.filter(m => m.role === 'assistant')
-
-  let completedItems = 0
-  let inFollowUp = false
-
-  for (let i = 1; i < assistantMessages.length; i++) {
-    if (inFollowUp) {
-      const currentItemIndex = completedItems
-      if (currentItemIndex < phq9Items.length) {
-        const isFollowUp = phq9Items[currentItemIndex].followUps.includes(assistantMessages[i].content)
-        if (!isFollowUp) {
-          inFollowUp = false
-          completedItems++
-        }
-      } else {
-        completedItems++
-      }
-    } else {
-      completedItems++
-      if (i < assistantMessages.length - 1) {
-        const nextMsg = assistantMessages[i + 1]
-        const currentItemIndex = completedItems - 1
-        if (currentItemIndex < phq9Items.length) {
-          if (phq9Items[currentItemIndex].followUps.includes(nextMsg.content)) {
-            inFollowUp = true
-          }
-        }
-      }
-    }
-  }
-
-  if (completedItems < phq9Items.length) {
-    return phq9Items[completedItems].question
-  } else {
-    return closingMessage
   }
 }
 
@@ -316,8 +270,14 @@ export async function scoringAPI(conversationHistory: ChatMessage[]): Promise<Sc
 
   const content = response.choices[0]?.message?.content || '{}'
 
+  let jsonStr = content.trim()
+  const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (jsonMatch) {
+    jsonStr = jsonMatch[1].trim()
+  }
+
   try {
-    return JSON.parse(content) as ScoreResult
+    return JSON.parse(jsonStr) as ScoreResult
   } catch {
     return {
       scores: {

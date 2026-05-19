@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Send, ArrowLeft, Loader2 } from 'lucide-react'
 import ChatBubble from '../components/ChatBubble'
 import type { ChatMessage } from '../types'
@@ -19,6 +19,11 @@ function ChatPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesRef = useRef<ChatMessage[]>(messages)
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -27,6 +32,15 @@ function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  const checkAndNavigateToReport = useCallback((msgs: ChatMessage[]) => {
+    const lastAssistantMsg = msgs.filter(m => m.role === 'assistant').pop()
+    if (lastAssistantMsg?.content.includes('谢谢你愿意分享这些')) {
+      navigate('/report', { state: { messages: msgs } })
+      return true
+    }
+    return false
+  }, [navigate])
 
   const handleSend = async () => {
     if (!inputValue.trim() || isLoading) return
@@ -38,7 +52,8 @@ function ChatPage() {
       timestamp: new Date(),
     }
 
-    setMessages((prev) => [...prev, userMessage])
+    const updatedMessages = [...messagesRef.current, userMessage]
+    setMessages(updatedMessages)
     setInputValue('')
     setIsLoading(true)
 
@@ -55,7 +70,7 @@ function ChatPage() {
 
     try {
       let accumulatedContent = ''
-      await conversationAPI(messages.concat([userMessage]), (chunk) => {
+      await conversationAPI(updatedMessages, (chunk) => {
         accumulatedContent += chunk
         setMessages((prev) =>
           prev.map((msg) =>
@@ -66,7 +81,17 @@ function ChatPage() {
         )
       })
 
+      const finalMessages = messagesRef.current.map((msg) =>
+        msg.id === loadingMessageId
+          ? { ...msg, content: accumulatedContent }
+          : msg
+      )
+
       setCurrentStep((prev) => prev + 1)
+
+      setTimeout(() => {
+        checkAndNavigateToReport(finalMessages)
+      }, 100)
     } catch (error) {
       console.error('API call failed:', error)
       setMessages((prev) =>
@@ -93,7 +118,9 @@ function ChatPage() {
   }
 
   const handleFinish = () => {
-    navigate('/report', { state: { messages } })
+    if (messages.length > 0) {
+      navigate('/report', { state: { messages } })
+    }
   }
 
   return (
@@ -135,50 +162,39 @@ function ChatPage() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4">
-        <div className="max-w-2xl mx-auto space-y-5">
+      <main className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="max-w-2xl mx-auto space-y-4">
           {messages.map((message) => (
             <ChatBubble key={message.id} message={message} />
           ))}
-          {isLoading && (
-            <div className="flex items-center justify-center py-4">
-              <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
-            </div>
-          )}
           <div ref={messagesEndRef} />
         </div>
       </main>
 
-      <footer className="bg-white/90 backdrop-blur-sm border-t border-gray-100 px-4 py-4">
-        <div className="max-w-2xl mx-auto flex items-end gap-3">
-          <div className="flex-1">
+      <footer className="bg-white/80 backdrop-blur-sm border-t border-gray-100 px-4 py-4">
+        <div className="max-w-2xl mx-auto">
+          <div className="flex items-center gap-3">
             <textarea
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="请输入你的回答..."
+              onKeyDown={handleKeyPress}
+              placeholder="输入你的回答..."
+              className="flex-1 resize-none rounded-xl border border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              rows={1}
               disabled={isLoading}
-              className={`w-full px-4 py-3 border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all text-gray-700 placeholder-gray-400 leading-relaxed ${
-                isLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-              rows={2}
             />
+            <button
+              onClick={handleSend}
+              disabled={!inputValue.trim() || isLoading}
+              className="p-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:from-emerald-600 hover:to-teal-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Send className="w-5 h-5" />
+              )}
+            </button>
           </div>
-          <button
-            onClick={handleSend}
-            disabled={!inputValue.trim() || isLoading}
-            className={`p-3 rounded-xl transition-all duration-200 ${
-              inputValue.trim() && !isLoading
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:opacity-90 shadow-md'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            {isLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Send className="w-5 h-5" />
-            )}
-          </button>
         </div>
       </footer>
     </div>
