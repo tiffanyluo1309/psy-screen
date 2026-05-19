@@ -1,4 +1,5 @@
-import { useNavigate, useEffect, useRef, useState } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
 import { Send, ArrowLeft } from 'lucide-react'
 import ChatBubble from '../components/ChatBubble'
 import type { ChatMessage } from '../types'

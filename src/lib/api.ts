@@ -1,6 +1,6 @@
 import type { PHQ9Score, Report, ChatMessage } from '../types'
 
-const API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY
+const API_KEY = (import.meta.env as ImportMetaEnv).VITE_DEEPSEEK_API_KEY || ''
 const BASE_URL = 'https://api.deepseek.com/v1/chat/completions'
 
 export async function sendMessage(messages: ChatMessage[]): Promise<string> {
