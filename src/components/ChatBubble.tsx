@@ -11,32 +11,32 @@ function ChatBubble({ message }: ChatBubbleProps) {
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       <div
-        className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-          isUser ? 'bg-indigo-100' : 'bg-gray-100'
+        className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm ${
+          isUser ? 'bg-emerald-100' : 'bg-slate-100'
         }`}
       >
         {isUser ? (
-          <User className="w-5 h-5 text-indigo-600" />
+          <User className="w-5 h-5 text-emerald-600" />
         ) : (
-          <Bot className="w-5 h-5 text-gray-600" />
+          <Bot className="w-5 h-5 text-slate-500" />
         )}
       </div>
       <div
-        className={`max-w-xs md:max-w-md ${
+        className={`max-w-xs md:max-w-lg ${
           isUser ? 'text-right' : 'text-left'
         }`}
       >
         <div
-          className={`inline-block px-4 py-2 rounded-2xl ${
+          className={`inline-block px-5 py-3 rounded-2xl shadow-sm ${
             isUser
-              ? 'bg-indigo-500 text-white rounded-br-md'
-              : 'bg-white text-gray-800 rounded-bl-md shadow-sm'
+              ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-br-md'
+              : 'bg-white text-gray-700 rounded-bl-md'
           }`}
         >
-          <p className="text-sm leading-relaxed">{message.content}</p>
+          <p className="text-sm leading-loose">{message.content}</p>
         </div>
         <div
-          className={`text-xs text-gray-400 mt-1 ${
+          className={`text-xs text-gray-400 mt-1.5 ${
             isUser ? 'mr-2' : 'ml-2'
           }`}
         >
