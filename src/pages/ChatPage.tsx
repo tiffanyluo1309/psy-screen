@@ -1,8 +1,9 @@
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
-import { Send, ArrowLeft } from 'lucide-react'
+import { Send, ArrowLeft, Loader2 } from 'lucide-react'
 import ChatBubble from '../components/ChatBubble'
 import type { ChatMessage } from '../types'
+import { conversationAPI } from '../lib/api'
 
 function ChatPage() {
   const navigate = useNavigate()
@@ -16,6 +17,7 @@ function ChatPage() {
   ])
   const [inputValue, setInputValue] = useState('')
   const [currentStep, setCurrentStep] = useState(1)
+  const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -26,20 +28,8 @@ function ChatPage() {
     scrollToBottom()
   }, [messages])
 
-  const mockReplies = [
-    '谢谢你的坦诚分享。接下来想了解一下，在过去的两周里，有没有哪几天你感觉做事情提不起劲，或者对以前喜欢的活动兴趣减少了？',
-    '我理解你的感受。接下来想问问你，最近两周心情怎么样？有没有感到低落或者抑郁的时候？',
-    '感谢你的分享。我们继续聊下一个话题，最近你的睡眠情况怎么样？有没有入睡困难或者容易醒来的情况？',
-    '好的，我了解了。接下来想问问你，在过去的两周里，是否经常感觉疲倦或者精力不足？',
-    '明白了。接下来我们来看，最近你的食欲有什么变化吗？有没有食欲不振或者暴饮暴食的情况？',
-    '谢谢你告诉我这些。接下来我们谈谈，你对自己的评价怎么样？有没有觉得自己不够好或者感到内疚？',
-    '我明白。下一个问题是关于注意力的，最近你在集中注意力或者做决定方面有没有遇到困难？',
-    '谢谢你的分享。最后一个问题，你有没有觉得自己行动或说话变慢了，或者相反，感到烦躁不安、坐立不安？',
-    '感谢你完成这次评估！我正在整理你的反馈，请稍等片刻...',
-  ]
-
-  const handleSend = () => {
-    if (!inputValue.trim()) return
+  const handleSend = async () => {
+    if (!inputValue.trim() || isLoading) return
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -50,18 +40,45 @@ function ChatPage() {
 
     setMessages((prev) => [...prev, userMessage])
     setInputValue('')
+    setIsLoading(true)
 
-    setTimeout(() => {
-      const replyIndex = Math.min(currentStep - 1, mockReplies.length - 1)
-      const reply: ChatMessage = {
-        id: (Date.now() + 1).toString(),
+    const loadingMessageId = (Date.now() + 1).toString()
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: loadingMessageId,
         role: 'assistant',
-        content: mockReplies[replyIndex],
+        content: '',
         timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, reply])
+      },
+    ])
+
+    try {
+      let accumulatedContent = ''
+      await conversationAPI(messages.concat([userMessage]), (chunk) => {
+        accumulatedContent += chunk
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === loadingMessageId
+              ? { ...msg, content: accumulatedContent }
+              : msg
+          )
+        )
+      })
+
       setCurrentStep((prev) => prev + 1)
-    }, 1000)
+    } catch (error) {
+      console.error('API call failed:', error)
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === loadingMessageId
+            ? { ...msg, content: '抱歉，网络连接出现问题，请稍后再试。' }
+            : msg
+        )
+      )
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -76,7 +93,7 @@ function ChatPage() {
   }
 
   const handleFinish = () => {
-    navigate('/report')
+    navigate('/report', { state: { messages } })
   }
 
   return (
@@ -111,7 +128,7 @@ function ChatPage() {
             <div className="w-full bg-gray-200 rounded-full h-1.5 mt-3">
               <div
                 className="bg-gradient-to-r from-emerald-500 to-teal-500 h-1.5 rounded-full transition-all duration-500"
-                style={{ width: `${(currentStep / 9) * 100}%` }}
+                style={{ width: `${Math.min((currentStep / 9) * 100, 100)}%` }}
               ></div>
             </div>
           </div>
@@ -123,6 +140,11 @@ function ChatPage() {
           {messages.map((message) => (
             <ChatBubble key={message.id} message={message} />
           ))}
+          {isLoading && (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
+            </div>
+          )}
           <div ref={messagesEndRef} />
         </div>
       </main>
@@ -135,20 +157,27 @@ function ChatPage() {
               onChange={(e) => setInputValue(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="请输入你的回答..."
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all text-gray-700 placeholder-gray-400 leading-relaxed"
+              disabled={isLoading}
+              className={`w-full px-4 py-3 border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all text-gray-700 placeholder-gray-400 leading-relaxed ${
+                isLoading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
               rows={2}
             />
           </div>
           <button
             onClick={handleSend}
-            disabled={!inputValue.trim()}
+            disabled={!inputValue.trim() || isLoading}
             className={`p-3 rounded-xl transition-all duration-200 ${
-              inputValue.trim()
+              inputValue.trim() && !isLoading
                 ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:opacity-90 shadow-md'
                 : 'bg-gray-200 text-gray-400 cursor-not-allowed'
             }`}
           >
-            <Send className="w-5 h-5" />
+            {isLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Send className="w-5 h-5" />
+            )}
           </button>
         </div>
       </footer>

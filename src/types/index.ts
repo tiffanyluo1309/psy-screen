@@ -1,4 +1,4 @@
-export type RiskLevel = 'normal' | 'mild' | 'moderate' | 'severe'
+export type RiskLevel = 'low' | 'mild' | 'moderate' | 'high'
 
 export interface PHQ9Score {
   q1: number // 做事提不起劲或乐趣减少
@@ -10,6 +10,23 @@ export interface PHQ9Score {
   q7: number // 难以集中注意力或犹豫不决
   q8: number // 行动或说话缓慢，或烦躁不安、坐立不安
   q9: number // 有过死亡念头或自杀想法
+}
+
+export interface ScoreResult {
+  scores: {
+    Q1: { score: number; reason: string }
+    Q2: { score: number; reason: string }
+    Q3: { score: number; reason: string }
+    Q4: { score: number; reason: string }
+    Q5: { score: number; reason: string }
+    Q6: { score: number; reason: string }
+    Q7: { score: number; reason: string }
+    Q8: { score: number; reason: string }
+    Q9: { score: number; reason: string }
+  }
+  total: number
+  risk_level: string
+  q9_flagged: boolean
 }
 
 export interface Report {
@@ -28,4 +45,9 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+}
+
+export interface OpenAIMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
 }
